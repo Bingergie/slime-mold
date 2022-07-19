@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0ec42867cefb4c88a84c4e54bc04546c, type: 3}
+  m_Name: New SlimeSettings
+  m_EditorClassIdentifier: 
+  stepsPerFrame: 1
+  width: 1024
+  height: 1024
+  bounceOffEdge: 0
+  allowRandom: 0
+  numAgents: 4326
+  spawnMode: 5
+  attractantMask: {fileID: 2800000, guid: 8e37756d68945d64bb117298972dbaff, type: 3}
+  attractantColor: {r: 0.8679245, g: 0.8679245, b: 0.8679245, a: 0}
+  attractantStrength: 13.72
+  repellentMask: {fileID: 2800000, guid: 3ce30bff9d42de542b4dcda322472495, type: 3}
+  repellentColor: {r: 0, g: 0, b: 0, a: 0}
+  repellentStrength: 3.15
+  obstacleMask: {fileID: 2800000, guid: 3ce30bff9d42de542b4dcda322472495, type: 3}
+  obstacleColor: {r: 0.6320754, g: 0.6320754, b: 0.6320754, a: 0}
+  sensorAngleOffset: 22.5
+  sensorOffsetDistance: 9
+  sensorSize: 1
+  rotationAngle: 45
+  stepSize: 9
+  color: {r: 1, g: 1, b: 1, a: 1}
+  trailWeight: 1
+  decayRate: 1
+  diffuseRate: 1
+  trailAttractiveStrength: 1

@@ -1,0 +1,241 @@
+#pragma kernel Update
+#pragma kernel Diffuse
+#pragma kernel Render
+
+struct Agent
+{
+    float2 position;
+    float rotation;
+};
+
+RWStructuredBuffer<Agent> agents;
+RWTexture2D<float4> trailMap;
+RWTexture2D<float4> diffusedTrailMap;
+RWTexture2D<float4> displayTexture;
+Texture2D<float4> attractantMask;
+Texture2D<float4> repellentMask;
+Texture2D<float4> obstacleMask;
+
+// Settings
+int width;
+int height;
+bool bounceOffEdge;
+bool allowRandom;
+uint numAgents;
+
+
+float4 attractantColor;
+float attractantStrength;
+float4 repellentColor;
+float repellentStrength;
+float4 obstacleColor;
+
+float sensorAngleOffset;
+float sensorOffsetDistance;
+int sensorSize;
+float rotationAngle;
+int stepSize;
+float4 color;
+
+float trailWeight;
+float decayRate;
+float diffuseRate;
+float trailAttractiveStrength;
+
+float deltaTime;
+float time;
+
+// Utils
+uint hash(uint state);
+float scaleToRange01(uint state);
+
+// update
+float Sense(Agent agent, float sensorAngleOffset);
+
+uint random;
+
+[numthreads(1024, 1, 1)]
+void Update(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numAgents)
+    {
+        return;
+    }
+
+    const Agent agent = agents[id.x];
+    const float2 position = agent.position;
+    random = hash(position.y * width + position.x + hash(id.x + time * 100000));
+
+    // Sense
+    const float sensorAngleRad = sensorAngleOffset * (3.1415 / 180);
+    const float weightForward = Sense(agent, 0);
+    const float weightLeft = Sense(agent, sensorAngleRad);
+    const float weightRight = Sense(agent, -sensorAngleRad);
+
+    const float randomSteerStrength = allowRandom ? scaleToRange01(random) : 1;
+    
+    // Continue in same direction
+    if (weightForward > weightLeft && weightForward > weightRight)
+    {
+        agents[id.x].rotation += 0;
+    }
+        // Turn randomly
+    else if (weightForward < weightLeft && weightForward < weightRight)
+    {
+        if (allowRandom)
+        {
+            agents[id.x].rotation += (randomSteerStrength - 0.5) * 2 * rotationAngle * deltaTime;
+        }
+        else
+        {
+            agents[id.x].rotation += scaleToRange01(random) > 0.5 ? rotationAngle : -rotationAngle;
+        }
+    }
+        // Turn right
+    else if (weightRight > weightLeft)
+    {
+        agents[id.x].rotation -= randomSteerStrength * rotationAngle * deltaTime;
+    }
+        // Turn left
+    else if (weightLeft > weightRight)
+    {
+        agents[id.x].rotation += randomSteerStrength * rotationAngle * deltaTime;
+    }
+
+    // Move
+    float2 direction = float2(cos(agent.rotation), sin(agent.rotation));
+    float2 newPosition = agent.position + direction * deltaTime * stepSize;
+
+    while (repellentMask[newPosition].r > 0.5)
+    {
+        random = hash(random);
+        const float randomAngle = scaleToRange01(random) * 2 * 3.1415;
+        direction = float2(cos(randomAngle), sin(randomAngle));
+        newPosition = agent.position + direction * deltaTime * stepSize;
+    }
+    
+    if (bounceOffEdge)
+    {
+        if (newPosition.x < 0 || newPosition.x >= width || newPosition.y < 0 || newPosition.y >= height)
+        {
+            random = hash(random);
+            const float randomAngle = scaleToRange01(random) * 2 * 3.1415;
+
+            newPosition.x = min(width - 1, max(0, newPosition.x));
+            newPosition.y = min(height - 1, max(0, newPosition.y));
+            agents[id.x].rotation = randomAngle;
+        }
+    }
+    else
+    {
+        if (newPosition.x < 0)
+        {
+            newPosition.x = width - 1;
+        }
+        else if (newPosition.x >= width)
+        {
+            newPosition.x = 0;
+        }
+        if (newPosition.y < 0)
+        {
+            newPosition.y = height - 1;
+        }
+        else if (newPosition.y >= height)
+        {
+            newPosition.y = 0;
+        }
+    }
+
+    trailMap[int2(newPosition)] = min(1, trailMap[int2(newPosition)] + trailWeight * deltaTime);
+
+    agents[id.x].position = newPosition;
+}
+
+float Sense(Agent agent, float sensorAngleOffset)
+{
+    const float sensorAngle = agent.rotation + sensorAngleOffset;
+    const float2 sensorDirection = float2(cos(sensorAngle), sin(sensorAngle));
+
+    const float2 sensorPos = agent.position + sensorDirection * sensorOffsetDistance;
+    const int sensorCenterX = (int)sensorPos.x;
+    const int sensorCenterY = (int)sensorPos.y;
+
+    float sum = 0;
+
+    for (int offsetX = -sensorSize; offsetX <= sensorSize; offsetX ++)
+    {
+        for (int offsetY = -sensorSize; offsetY <= sensorSize; offsetY ++)
+        {
+            int sampleX = min(width - 1, max(0, sensorCenterX + offsetX));
+            int sampleY = min(height - 1, max(0, sensorCenterY + offsetY));
+            sum += trailAttractiveStrength * trailMap[int2(sampleX, sampleY)].x;
+            sum += attractantStrength * attractantMask[int2(sampleX, sampleY)].x;
+            sum -= repellentStrength * repellentMask[int2(sampleX, sampleY)].x;
+        }
+    }
+
+    return sum;
+}
+
+// diffuse
+void Diffuse3x3(RWTexture2D<float4> source, RWTexture2D<float4> dest, int posX, int posY);
+
+[numthreads(8, 8, 1)]
+void Diffuse(uint3 id: SV_DispatchThreadID)
+{
+    if (id.x < 0 || id.x >= (uint)width || id.y < 0 || id.y >= (uint)height)
+    {
+        return;
+    }
+
+    Diffuse3x3(trailMap, diffusedTrailMap, id.x, id.y);
+}
+
+void Diffuse3x3(RWTexture2D<float4> source, RWTexture2D<float4> dest, int posX, int posY)
+{
+    float4 sum = 0;
+    const float4 originalColor = source[int2(posX, posY)];
+
+    for (int offsetX = -1; offsetX <= 1; offsetX ++)
+    {
+        for (int offsetY = -1; offsetY <= 1; offsetY ++)
+        {
+            int sampleX = min(width - 1, max(0, posX + offsetX));
+            int sampleY = min(height - 1, max(0, posY + offsetY));
+            sum += source[int2(sampleX, sampleY)];
+        }
+    }
+
+    float4 blurredColor = sum / 9;
+    const float diffuseWeight = saturate(diffuseRate * deltaTime);
+    blurredColor = originalColor * (1 - diffuseWeight) + blurredColor * (diffuseWeight);
+
+    dest[int2(posX, posY)] = max(0, blurredColor - decayRate * deltaTime);
+}
+
+// render
+[numthreads(8, 8, 1)]
+void Render(uint3 id: SV_DispatchThreadID)
+{
+    displayTexture[id.xy] = trailMap[id.xy] * color;
+}
+
+
+// Utils
+
+// Hash function www.cs.ubc.ca/~rbridson/docs/schechter-sca08-turbulence.pdf
+uint hash(uint state)
+{
+    state ^= 2747636419u;
+    state *= 2654435769u;
+    state ^= state >> 16;
+    state *= 2654435769u;
+    state ^= state >> 16;
+    state *= 2654435769u;
+    return state;
+}
+
+float scaleToRange01(uint state)
+{
+    return state / 4294967295.0;
+}
